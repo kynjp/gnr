@@ -1,0 +1,300 @@
+﻿<!DOCTYPE html>
+<html manifest="gnews.manifest">
+<head>
+<title>G-N-R</title>
+<meta charset="UTF-8"> 
+<meta name = "viewport" content = "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<link rel="stylesheet" href="RoundRectangle.css" />
+<style>
+body {
+  margin-left: 0px;
+}
+
+div.header {
+  position: absoulte;
+  top: 0px;
+  left: 0px;
+  height: 48px;
+  text-align: center;
+  background: url('./header.png');
+}
+
+div.list {
+  margin-left: 10px;
+}
+
+div.article {
+  margin-left: 10px;
+}
+
+div.config {
+  margin-left: 10px;
+}
+
+span {
+  color: white;
+  vertical-align: middle;
+  font-weight: bold;
+}
+
+.invisible {
+  display: none;
+}
+
+
+li.selected {
+  color: DarkBlue;
+  font-weight: bold;
+}
+
+label {
+  margin-left: 1.5em;
+}
+
+[size="-1"]{
+  font-size: 110%;
+}
+
+button{
+  border: 0px;
+  float: left;
+  font-size: 80%;
+}
+
+button#config{
+  float: right;
+  width: 48px;
+  height: 48px;
+  background: url('./gear.png');
+}
+
+button#update{
+  width: 48px;
+  height: 48px;
+  background: url('./refresh.png');
+}
+
+button#back{
+  position: relative;
+  top: 8px;
+  height: 31px;
+  width: 65px;
+  background: url('./arrow.png');
+  color: white;
+  font-weight: bold;
+  padding-top: 2px;
+  padding-left: 12px;
+}
+
+div {
+  width: 320px;
+}
+
+ul {
+  width: 300px;
+}
+
+li {
+  width: 280px;
+}
+
+</style>
+<script type="text/javascript" src="./jquery-1.4.2.min.js"></script>
+<link rel="stylesheet" href="style.css" />
+<script>
+var order = ["h", "y", "w", "b", "p", "e", "s", "t", "ir"];
+var numgenre = order.length;
+var genre2 = {"h":"トップニュース", "y":"社会", "w":"国際", "b":"ビジネス", "p":"政治", "e":"エンターテイメント", "s":"スポーツ", "t":"テクノロジー", "ir":"ピックアップ", "po":"話題のニュース"};
+var num = 5;
+var updating = false;
+
+var db = openDatabase("gnewsdb", "", "News feed store", 1024*1024);
+db.transaction(function(tx) {
+  tx.executeSql("create table if not exists storage (genre, title, body)");
+});
+
+var title;
+var description;
+
+function updateList(genre){
+  var list = $('<ul class="menu" />');
+  db.transaction(function(tx) {
+    tx.executeSql("select title from storage where genre = ?", [genre], function(tx, rs) {
+      var rows = rs.rows;
+      for (var i=0, n=rows.length; i<n; i++) {
+        var row = rows.item(i);
+        list.append($('<li />').html(row.title).click(function(){ showArticle(this); }));
+      }
+    });
+  });
+  $("#"+genre+" > ul").remove();
+  $("#"+genre).append(list);
+}
+
+function insertJSONtoDB(genre, items, db, n){
+  if(items.length>0){
+    $("#info").html(genre2[genre] + "を更新中");
+    var title = items[0]["title"].replace(/-.*?$/, "");
+    var description = items[0]["description"];
+    items.shift();
+    db.transaction(function(tx) {
+      tx.executeSql("insert into storage (genre, title, body) values (?, ?, ?)", [genre, title, description], insertJSONtoDB(genre, items, db, n));
+    });
+  }else{
+    $("#info").html("");
+    updateList(genre);
+    fetchJSONs(n+1);
+  }
+}
+
+function showArticle(element){
+  if(!updating){
+    db.transaction(function(tx) {
+      tx.executeSql("select body from storage where title = ?", [$(element).html()], function(tx, rs) {
+        if(rs.rows.length>0){
+          var row = rs.rows.item(0);
+          $("#articletitle").html($(element).html());
+          $(".article").remove();
+          $('<div class="article" />').append($("<ul />").append($("<li />").html(row.body))).appendTo($("#articlearea"));
+          /*
+          $("div.article > table > tbody > tr > td.j > font > br").remove();
+          $("div.article > table > tbody > tr > td.j > font > div.lh > br").remove();
+          $("div.article > table > tbody > tr > td.j > font > div.lh > a").remove();
+          $("div.article > table > tbody > tr > td.j > font > div.lh > font > b").remove();
+          */
+          $("#listarea").addClass("invisible");
+          $("#articlearea").removeClass("invisible");
+        }
+      });
+    });
+  }
+}
+
+function createView(genre){
+  $('<div id="'+genre+'" class="list" />').append($("<h3 />").html(genre2[genre]) ).appendTo($("#listarea"));
+  updateList(genre);
+}
+
+function fetchJSONs(n){
+  if(n<numgenre){
+    var genre = order[n];
+    if(window.localStorage[genre]!=0){
+      $("#info").html(genre2[genre]+"を取得中");
+      $.getJSON("http://pipes.yahoo.com/pipes/pipe.run?_id=Xj6p_enY3RG_fhlRBRNMsA&_render=json&_callback=?&urlinput1=http://news.google.com/news%3Fhl%3Dja%26ned%3Dus%26ie%3DUTF-8%26oe%3DUTF-8%26output%3Drss%26num%3D"+num+"%26topic%3D" + genre, function(data){
+        var items = data["value"]["items"];
+        var L = items.length;
+        if(L>0){
+          db.transaction(function(tx) {
+            tx.executeSql("delete from storage where genre = ? ", [genre], function(){ insertJSONtoDB(genre, items, db, n); })
+          });
+        }else{
+          $("#info").html("");
+          fetchJSONs(n+1);
+        }
+      });
+    }else
+      fetchJSONs(n+1);
+  }else{
+     updating = false;
+     document.getElementById("update").disabled = false;
+     document.getElementById("config").disabled = false;
+   }
+}
+
+$(function(){
+
+  var changeattr = function(element){
+    genre = element.id;
+    if(window.localStorage[genre]!=0){
+      $(element).removeClass("selected");
+      window.localStorage[genre]=0;
+    }else{
+      $(element).addClass("selected");
+      window.localStorage[genre]=1;
+    }
+    createViews();
+  };
+
+  var createViews = function(){
+    $("div.list").remove();
+    for(var i=0;i<numgenre;i++)
+      if(window.localStorage[order[i]]!=0)  createView(order[i]);
+  };
+  
+  for(var i=0;i<numgenre;i++){
+    if(window.localStorage[order[i]]==undefined) window.localStorage[order[i]] = 1;
+    if(window.localStorage[order[i]]!=0)
+       $('<li id="' +order[i]+ '" />').append($("<label />").html(genre2[order[i]])).addClass("selected").click(function(){ changeattr(this);}).appendTo("#categorylist");
+    else
+       $('<li id="' +order[i]+ '" />').append($("<label />").html(genre2[order[i]])).click(function(){ changeattr(this);}).appendTo("#categorylist");
+  }
+  
+  createViews();
+
+  var setorientation = function(){
+     if(window.orientation==90||window.orientation==-90){
+       document.styleSheets[1].removeRule(16);
+       document.styleSheets[1].removeRule(15);
+       document.styleSheets[1].removeRule(14);
+       document.styleSheets[1].insertRule("div.header { width: 480px;}", 14);
+       document.styleSheets[1].insertRule("ul { width: 460px;}", 15);
+       document.styleSheets[1].insertRule("li { width: 440px;}", 16);
+     }else{
+       document.styleSheets[1].removeRule(16);
+       document.styleSheets[1].removeRule(15);
+       document.styleSheets[1].removeRule(14);
+       document.styleSheets[1].insertRule("div.header { width: 320px;}", 14);
+       document.styleSheets[1].insertRule("ul { width: 300px;}", 15);
+       document.styleSheets[1].insertRule("li { width: 280px;}", 16);
+     };
+   };
+  window.onorientationchange = setorientation;
+  setorientation();
+
+  $("button#update").click(function(){
+    this.disabled = true;
+    document.getElementById("config").disabled = true;
+    updating = true;
+    fetchJSONs(0);
+  });
+  
+  $("button#config").click(function(){
+    $("#listarea").addClass("invisible");
+    $("#configarea").removeClass("invisible");
+  });
+  
+  $("button#back").click(function(){
+    $("#listarea").removeClass("invisible");
+    $("#articlearea").addClass("invisible");
+    $("#configarea").addClass("invisible");
+  });
+});
+</script>
+</head>
+<body>
+<div id="listarea">
+<div class="header">
+<button id="update"></button>
+<span id="info"></span>
+<button id="config"></button>
+</div>
+</div>
+<div id="articlearea" class="invisible">
+<div class="header">
+<button id="back">Back</button>
+<span id="articletitle"></span>
+</div>
+</div>
+<div id="configarea" class="invisible">
+<div class="header">
+<button id="back">Back</button>
+</div>
+<div class="config">
+<h3>購読選択</h3>
+<ul id="categorylist"></ul>
+</div>
+</div>
+</body>
+</html>
